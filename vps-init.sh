@@ -4,19 +4,17 @@
 # 基于科技lion脚本核心命令，非交互式自动化
 #
 # 使用方法：
-#   1. 修改下方配置变量
-#   2. 上传到 VPS 或直接执行：
-#      bash <(curl -sL your-url/vps-init.sh)
+#   wget -qO- https://raw.githubusercontent.com/shuggg999/vps-scripts/main/vps-init.sh | bash
 #
 # ============================================================
 
-# ==================== 必须修改 ====================
-HOSTNAME="your-hostname"           # 主机名，如: usbot, jarvis, claw
-SSH_PUBKEY=""                      # 你的 SSH 公钥（完整内容）
-# 示例: SSH_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... your-email@example.com"
+# ==================== 自动获取配置 ====================
+# HOSTNAME: 自动读取当前主机名
+# SSH_PUBKEY: 自动从 GitHub 获取
+GITHUB_USER="shuggg999"
 
 # ==================== 可选修改 ====================
-SSH_PORT=5522                      # SSH 端口
+SSH_PORT=2222                      # SSH 端口（与重装脚本一致）
 TIMEZONE="Asia/Shanghai"           # 时区
 # SWAP_SIZE 留空则自动计算，或指定具体值如: SWAP_SIZE=2048 (单位MB)
 SWAP_SIZE=""
@@ -711,24 +709,26 @@ main() {
     detect_location
     calc_swap_size
 
+    # 自动获取 HOSTNAME（使用当前主机名）
+    HOSTNAME=$(hostname)
+
+    # 自动从 GitHub 获取 SSH 公钥
+    log_info "从 GitHub 获取 SSH 公钥..."
+    SSH_PUBKEY=$(curl -s "https://github.com/${GITHUB_USER}.keys" | head -1)
+    if [ -z "$SSH_PUBKEY" ]; then
+        log_warn "无法从 GitHub 获取公钥，将跳过密钥登录配置"
+    else
+        log_success "已获取 SSH 公钥"
+    fi
+
     echo ""
     log_info "配置信息:"
     echo "  主机名:     $HOSTNAME"
     echo "  SSH端口:    $SSH_PORT"
     echo "  时区:       $TIMEZONE"
     echo "  SWAP大小:   ${SWAP_SIZE}MB"
-    echo "  SSH公钥:    ${SSH_PUBKEY:0:30}..."
+    echo "  SSH公钥:    ${SSH_PUBKEY:0:50}..."
     echo ""
-
-    # 检查必要配置
-    if [ "$HOSTNAME" = "your-hostname" ]; then
-        log_error "请先修改 HOSTNAME 配置"
-        exit 1
-    fi
-
-    if [ -z "$SSH_PUBKEY" ]; then
-        log_warn "SSH_PUBKEY 未设置，将跳过密钥登录配置"
-    fi
 
     # 倒计时
     log_warn "5 秒后开始初始化，按 Ctrl+C 取消..."
