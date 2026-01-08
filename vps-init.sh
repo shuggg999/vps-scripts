@@ -536,9 +536,30 @@ do_ssh_key() {
     log_success "SSH 密钥登录配置完成"
 }
 
-# 13. fail2ban SSH 防御（kejilion f2b_install_sshd 函数）
+# 13. 禁用密码登录
+do_disable_password() {
+    log_step "13. 禁用密码登录"
+
+    # 检查是否已配置密钥登录
+    if [ ! -f ~/.ssh/authorized_keys ] || [ ! -s ~/.ssh/authorized_keys ]; then
+        log_warn "未检测到 SSH 密钥，跳过禁用密码登录（避免锁死）"
+        return 0
+    fi
+
+    log_info "正在禁用密码登录..."
+
+    # 禁用密码登录
+    sed -i 's/^\s*#\?\s*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+
+    # 重启 SSH
+    systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || service sshd restart 2>/dev/null
+
+    log_success "密码登录已禁用，只允许密钥登录"
+}
+
+# 14. fail2ban SSH 防御（kejilion f2b_install_sshd 函数）
 do_fail2ban() {
-    log_step "13. SSH 防御程序 (fail2ban)"
+    log_step "14. SSH 防御程序 (fail2ban)"
 
     log_info "正在安装 fail2ban..."
 
@@ -579,9 +600,9 @@ EOF
     log_success "fail2ban 安装完成"
 }
 
-# 14. 防火墙配置（开放必要端口）
+# 15. 防火墙配置（开放必要端口）
 do_firewall() {
-    log_step "14. 防火墙配置"
+    log_step "15. 防火墙配置"
 
     log_info "正在配置防火墙..."
 
@@ -605,9 +626,9 @@ do_firewall() {
     log_success "防火墙配置完成"
 }
 
-# 15. Docker 安装（kejilion linuxmirrors_install_docker 函数）
+# 16. Docker 安装（kejilion linuxmirrors_install_docker 函数）
 do_install_docker() {
-    log_step "15. Docker 安装"
+    log_step "16. Docker 安装"
 
     # 检查是否已安装
     if command -v docker &>/dev/null; then
@@ -663,9 +684,9 @@ EOF
     fi
 }
 
-# 16. 基础工具安装
+# 17. 基础工具安装
 do_install_tools() {
-    log_step "16. 基础工具安装"
+    log_step "17. 基础工具安装"
 
     log_info "正在安装基础工具..."
 
@@ -747,10 +768,11 @@ main() {
     do_hostname_setup       # 10. 主机名
     do_ssh_port             # 11. SSH 端口
     do_ssh_key              # 12. SSH 密钥
-    do_fail2ban             # 13. fail2ban
-    do_firewall             # 14. 防火墙
-    do_install_docker       # 15. Docker
-    do_install_tools        # 16. 基础工具
+    do_disable_password     # 13. 禁用密码登录
+    do_fail2ban             # 14. fail2ban
+    do_firewall             # 15. 防火墙
+    do_install_docker       # 16. Docker
+    do_install_tools        # 17. 基础工具
 
     # 显示完成信息
     echo ""
