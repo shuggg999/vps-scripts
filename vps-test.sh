@@ -252,7 +252,7 @@ test_unlock() {
     echo "---------------------流媒体解锁-------------------"
 
     local arch_file=$(get_arch_file)
-    local unlock_url="https://github.com/oneclickvirt/UnlockTests/releases/download/output/UnlockTests-linux-${arch_file}"
+    local unlock_url="https://github.com/oneclickvirt/UnlockTests/releases/download/output/ut-linux-${arch_file}"
     download_tool "unlock" "$unlock_url" "$TEMP_DIR/unlock"
 
     if [[ -f "$TEMP_DIR/unlock" && -x "$TEMP_DIR/unlock" ]]; then
