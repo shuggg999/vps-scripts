@@ -4,7 +4,7 @@
 # 测试项：基础信息 + CPU + 磁盘IO + 回程路由 + 流媒体解锁 + IP质量
 # 约 3-5 分钟完成
 
-set -e
+# set -e  # 禁用，避免某个命令失败导致整个脚本退出
 
 # ==================== 颜色定义 ====================
 RED="\033[31m"
@@ -137,18 +137,27 @@ test_cpu() {
 
     echo -e " ${YELLOW}-> CPU 测试中 (单线程, 5秒)${PLAIN}"
 
-    local result=$(sysbench cpu --cpu-max-prime=20000 --threads=1 --time=5 run 2>/dev/null)
-    local events=$(echo "$result" | grep "total number of events" | awk '{print $NF}')
-    local score=$((events / 5))
+    # 使用融合怪相同的参数: cpu-max-prime=10000
+    local result=$(sysbench cpu --threads=1 --cpu-max-prime=10000 --events=1000000 --time=5 run 2>/dev/null)
+
+    # 优先从 "events per second" 获取得分
+    local score=$(echo "$result" | grep -oE "events per second:\s*[0-9.]+" | grep -oE "[0-9.]+")
+
+    # 备用：从 total events / total time 计算
+    if [[ -z "$score" ]]; then
+        local events=$(echo "$result" | grep "total number of events" | awk '{print $NF}')
+        local time=$(echo "$result" | grep "total time:" | grep -oE "[0-9.]+" | head -1)
+        score=$(echo "$events $time" | awk '{printf "%.0f", $1/$2}')
+    fi
 
     echo -e " 单核得分       : ${BLUE}${score} Scores${PLAIN}"
 
     # 评级
     local rating=""
-    if [[ $score -gt 1200 ]]; then rating="⭐⭐⭐⭐⭐ 顶级"
-    elif [[ $score -gt 900 ]]; then rating="⭐⭐⭐⭐ 优秀"
-    elif [[ $score -gt 600 ]]; then rating="⭐⭐⭐ 良好"
-    elif [[ $score -gt 400 ]]; then rating="⭐⭐ 一般"
+    if [[ ${score%.*} -gt 1200 ]]; then rating="⭐⭐⭐⭐⭐ 顶级"
+    elif [[ ${score%.*} -gt 900 ]]; then rating="⭐⭐⭐⭐ 优秀"
+    elif [[ ${score%.*} -gt 600 ]]; then rating="⭐⭐⭐ 良好"
+    elif [[ ${score%.*} -gt 400 ]]; then rating="⭐⭐ 一般"
     else rating="⭐ 较差"
     fi
     echo -e " 评级           : ${GREEN}${rating}${PLAIN}"
@@ -227,8 +236,10 @@ test_route() {
             local ip="${TEST_TARGETS[$name]}"
             echo ""
             _yellow "$name $ip"
-            "$TEMP_DIR/nexttrace" -M -q1 -n "$ip" 2>/dev/null | \
-                grep -E "^\s*[0-9]+\s+|AS[0-9]+" | head -12 || true
+            # 使用 --no-color 避免颜色代码干扰，--queries=1 减少探测次数
+            local trace_result=$("$TEMP_DIR/nexttrace" --queries=1 --no-color "$ip" 2>/dev/null)
+            echo "$trace_result" | grep -E "^\s*[0-9]+\s+[0-9.]+\s+ms|AS[0-9]+" | head -15 || \
+            echo "$trace_result" | grep -v "^$" | head -15 || true
         done
     else
         _yellow "nexttrace 下载失败"
@@ -244,17 +255,30 @@ test_unlock() {
     local unlock_url="https://github.com/oneclickvirt/UnlockTests/releases/download/output/UnlockTests-linux-${arch_file}"
     download_tool "unlock" "$unlock_url" "$TEMP_DIR/unlock"
 
-    if [[ -f "$TEMP_DIR/unlock" ]]; then
-        "$TEMP_DIR/unlock" 2>/dev/null | grep -E "ChatGPT|Claude|Netflix|Disney|YouTube|TikTok|Gemini|Sora" || true
+    if [[ -f "$TEMP_DIR/unlock" && -x "$TEMP_DIR/unlock" ]]; then
+        local unlock_result=$("$TEMP_DIR/unlock" 2>/dev/null)
+        # 提取关键服务状态
+        echo "$unlock_result" | grep -E "ChatGPT|Claude|Netflix|Disney\+|YouTube|TikTok|Gemini|Sora|Google" | head -15 || \
+        echo "$unlock_result" | head -20 || true
     else
         # 手动检测核心服务
+        _yellow "使用手动检测模式..."
+
         echo -n " ChatGPT: "
-        local chatgpt=$(curl -sI --max-time 5 "https://chat.openai.com" 2>/dev/null | head -1)
-        [[ "$chatgpt" == *"200"* ]] && _green "YES" || _red "NO"
+        local chatgpt=$(curl -s --max-time 10 "https://api.openai.com/v1/models" 2>/dev/null)
+        [[ "$chatgpt" != *"error"* && "$chatgpt" != *"blocked"* ]] && _green "YES" || _red "NO"
 
         echo -n " Claude: "
-        local claude=$(curl -sI --max-time 5 "https://claude.ai" 2>/dev/null | head -1)
-        [[ "$claude" == *"200"* ]] && _green "YES" || _red "NO"
+        local claude=$(curl -sI --max-time 10 "https://claude.ai" 2>/dev/null | grep -i "location\|HTTP")
+        [[ "$claude" == *"200"* || "$claude" != *"blocked"* ]] && _green "YES" || _red "NO"
+
+        echo -n " Netflix: "
+        local netflix=$(curl -s --max-time 10 "https://www.netflix.com/title/80018499" 2>/dev/null)
+        [[ "$netflix" == *"page-404"* || "$netflix" == *"Not Available"* ]] && _red "NO" || _green "可能解锁"
+
+        echo -n " YouTube: "
+        local youtube=$(curl -sI --max-time 10 "https://www.youtube.com" 2>/dev/null | head -1)
+        [[ "$youtube" == *"200"* ]] && _green "YES" || _red "NO"
     fi
 }
 
