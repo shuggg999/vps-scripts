@@ -688,13 +688,13 @@ EOF
 do_install_komari() {
     log_step "17. Komari 监控探针"
 
-    # Komari 服务端配置
-    KOMARI_SERVER="148.135.102.181:25774"
+    # Komari 服务端配置（通过 Cloudflare Tunnel）
+    KOMARI_ENDPOINT="https://komari.ideapusher.cn"
     KOMARI_TOKEN="${KOMARI_TOKEN:-}"  # 从环境变量获取，或留空跳过
 
     if [ -z "$KOMARI_TOKEN" ]; then
         log_warn "KOMARI_TOKEN 未设置，跳过探针安装"
-        log_info "手动安装命令: docker run -d --name komari-agent --restart always ..."
+        log_info "手动安装命令: docker run -d --name komari-agent --restart always ghcr.io/komari-monitor/komari-agent:latest -e '${KOMARI_ENDPOINT}' -t '<TOKEN>'"
         return 0
     fi
 
@@ -709,7 +709,7 @@ do_install_komari() {
     # 移除旧容器
     docker rm -f komari-agent 2>/dev/null
 
-    # 安装 Komari Agent
+    # 安装 Komari Agent（使用正确的参数）
     docker run -d \
         --name komari-agent \
         --restart always \
@@ -718,8 +718,8 @@ do_install_komari() {
         -v /:/host:ro \
         -v /var/run/docker.sock:/var/run/docker.sock:ro \
         ghcr.io/komari-monitor/komari-agent:latest \
-        -s "${KOMARI_SERVER}" \
-        -k "${KOMARI_TOKEN}"
+        -e "${KOMARI_ENDPOINT}" \
+        -t "${KOMARI_TOKEN}"
 
     if [ $? -eq 0 ]; then
         log_success "Komari 探针安装完成"
