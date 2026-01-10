@@ -256,10 +256,11 @@ test_unlock() {
     download_tool "unlock" "$unlock_url" "$TEMP_DIR/unlock"
 
     if [[ -f "$TEMP_DIR/unlock" && -x "$TEMP_DIR/unlock" ]]; then
-        local unlock_result=$("$TEMP_DIR/unlock" 2>/dev/null)
+        # 输入 0 选择"跨国平台"检测
+        local unlock_result=$(echo "0" | "$TEMP_DIR/unlock" 2>/dev/null)
         # 提取关键服务状态
-        echo "$unlock_result" | grep -E "ChatGPT|Claude|Netflix|Disney\+|YouTube|TikTok|Gemini|Sora|Google" | head -15 || \
-        echo "$unlock_result" | head -20 || true
+        echo "$unlock_result" | grep -E "ChatGPT|Claude|Netflix|Disney\+|YouTube|TikTok|Gemini|Sora|Google|Apple|Spotify" | head -20 || \
+        echo "$unlock_result" | grep -E "YES|NO|Banned" | head -20 || true
     else
         # 手动检测核心服务
         _yellow "使用手动检测模式..."
