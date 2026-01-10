@@ -684,9 +684,54 @@ EOF
     fi
 }
 
-# 17. 基础工具安装
+# 17. Komari 监控探针
+do_install_komari() {
+    log_step "17. Komari 监控探针"
+
+    # Komari 服务端配置
+    KOMARI_SERVER="148.135.102.181:25774"
+    KOMARI_TOKEN="${KOMARI_TOKEN:-}"  # 从环境变量获取，或留空跳过
+
+    if [ -z "$KOMARI_TOKEN" ]; then
+        log_warn "KOMARI_TOKEN 未设置，跳过探针安装"
+        log_info "手动安装命令: docker run -d --name komari-agent --restart always ..."
+        return 0
+    fi
+
+    log_info "正在安装 Komari 监控探针..."
+
+    # 确保 Docker 已安装
+    if ! command -v docker &>/dev/null; then
+        log_error "Docker 未安装，跳过 Komari"
+        return 1
+    fi
+
+    # 移除旧容器
+    docker rm -f komari-agent 2>/dev/null
+
+    # 安装 Komari Agent
+    docker run -d \
+        --name komari-agent \
+        --restart always \
+        --net=host \
+        --pid=host \
+        -v /:/host:ro \
+        -v /var/run/docker.sock:/var/run/docker.sock:ro \
+        ghcr.io/komari-monitor/komari-agent:latest \
+        -s "${KOMARI_SERVER}" \
+        -k "${KOMARI_TOKEN}"
+
+    if [ $? -eq 0 ]; then
+        log_success "Komari 探针安装完成"
+    else
+        log_error "Komari 探针安装失败"
+        return 1
+    fi
+}
+
+# 18. 基础工具安装
 do_install_tools() {
-    log_step "17. 基础工具安装"
+    log_step "18. 基础工具安装"
 
     log_info "正在安装基础工具..."
 
@@ -772,7 +817,8 @@ main() {
     do_fail2ban             # 14. fail2ban
     do_firewall             # 15. 防火墙
     do_install_docker       # 16. Docker
-    do_install_tools        # 17. 基础工具
+    do_install_komari       # 17. Komari 探针
+    do_install_tools        # 18. 基础工具
 
     # 显示完成信息
     echo ""
