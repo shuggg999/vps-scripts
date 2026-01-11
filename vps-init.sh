@@ -756,6 +756,155 @@ do_install_tools() {
     log_success "基础工具安装完成"
 }
 
+# 19. 验证所有初始化结果
+do_verify() {
+    log_step "19. 初始化验证"
+
+    local PASS=0
+    local FAIL=0
+
+    echo ""
+    echo "┌─────────────────────────────────────────────────────────┐"
+    echo "│                    验证报告                              │"
+    echo "├─────────────────────────────────────────────────────────┤"
+
+    # 4. BBR
+    if [[ $(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null) == "bbr" ]]; then
+        echo -e "│  ${GREEN}✓${NC} BBR 加速已启用"
+        ((PASS++))
+    else
+        echo -e "│  ${RED}✗${NC} BBR 加速未启用"
+        ((FAIL++))
+    fi
+
+    # 5. 内核参数
+    if [[ -f /etc/sysctl.d/99-vps-optimize.conf ]]; then
+        echo -e "│  ${GREEN}✓${NC} 内核参数已优化"
+        ((PASS++))
+    else
+        echo -e "│  ${RED}✗${NC} 内核参数配置缺失"
+        ((FAIL++))
+    fi
+
+    # 6. DNS
+    if grep -q "nameserver" /etc/resolv.conf 2>/dev/null; then
+        local dns=$(grep "nameserver" /etc/resolv.conf | head -1 | awk '{print $2}')
+        echo -e "│  ${GREEN}✓${NC} DNS 已配置 ($dns)"
+        ((PASS++))
+    else
+        echo -e "│  ${RED}✗${NC} DNS 未配置"
+        ((FAIL++))
+    fi
+
+    # 7. IPv4 优先
+    if grep -q "precedence ::ffff:0:0/96  100" /etc/gai.conf 2>/dev/null; then
+        echo -e "│  ${GREEN}✓${NC} IPv4 优先已设置"
+        ((PASS++))
+    else
+        echo -e "│  ${YELLOW}○${NC} IPv4 优先未设置（可选）"
+    fi
+
+    # 8. SWAP
+    local swap_size=$(free -m | awk '/^Swap:/{print $2}')
+    if [[ $swap_size -gt 500 ]]; then
+        echo -e "│  ${GREEN}✓${NC} SWAP 已配置 (${swap_size}MB)"
+        ((PASS++))
+    else
+        echo -e "│  ${RED}✗${NC} SWAP 未配置或过小"
+        ((FAIL++))
+    fi
+
+    # 9. 时区
+    local tz=$(timedatectl 2>/dev/null | grep "Time zone" | awk '{print $3}')
+    if [[ -n "$tz" ]]; then
+        echo -e "│  ${GREEN}✓${NC} 时区已设置 ($tz)"
+        ((PASS++))
+    else
+        echo -e "│  ${YELLOW}○${NC} 时区未检测到"
+    fi
+
+    # 11. SSH 端口
+    local ssh_port=$(grep "^Port" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+    if [[ "$ssh_port" == "$SSH_PORT" ]]; then
+        echo -e "│  ${GREEN}✓${NC} SSH 端口已修改 ($ssh_port)"
+        ((PASS++))
+    else
+        echo -e "│  ${YELLOW}○${NC} SSH 端口: ${ssh_port:-默认}"
+    fi
+
+    # 12. SSH 密钥
+    if [[ -s ~/.ssh/authorized_keys ]]; then
+        echo -e "│  ${GREEN}✓${NC} SSH 密钥已配置"
+        ((PASS++))
+    else
+        echo -e "│  ${RED}✗${NC} SSH 密钥未配置"
+        ((FAIL++))
+    fi
+
+    # 13. 密码登录
+    if grep -q "^PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null; then
+        echo -e "│  ${GREEN}✓${NC} 密码登录已禁用"
+        ((PASS++))
+    else
+        echo -e "│  ${YELLOW}○${NC} 密码登录仍启用"
+    fi
+
+    # 14. fail2ban
+    if systemctl is-active fail2ban &>/dev/null; then
+        echo -e "│  ${GREEN}✓${NC} fail2ban 运行中"
+        ((PASS++))
+    else
+        echo -e "│  ${YELLOW}○${NC} fail2ban 未运行"
+    fi
+
+    # 16. Docker
+    if command -v docker &>/dev/null; then
+        echo -e "│  ${GREEN}✓${NC} Docker 已安装"
+        ((PASS++))
+    else
+        echo -e "│  ${RED}✗${NC} Docker 未安装"
+        ((FAIL++))
+    fi
+
+    # 17. Komari Agent
+    if docker ps 2>/dev/null | grep -q komari-agent; then
+        echo -e "│  ${GREEN}✓${NC} Komari 探针运行中"
+        ((PASS++))
+    elif [[ -z "$KOMARI_TOKEN" ]]; then
+        echo -e "│  ${YELLOW}○${NC} Komari 探针已跳过（未设置 Token）"
+    else
+        echo -e "│  ${RED}✗${NC} Komari 探针未运行"
+        ((FAIL++))
+    fi
+
+    # 18. 基础工具
+    local tools_ok=true
+    for tool in wget curl sudo tar git; do
+        if ! command -v $tool &>/dev/null; then
+            tools_ok=false
+            break
+        fi
+    done
+    if $tools_ok; then
+        echo -e "│  ${GREEN}✓${NC} 基础工具已安装"
+        ((PASS++))
+    else
+        echo -e "│  ${RED}✗${NC} 部分基础工具缺失"
+        ((FAIL++))
+    fi
+
+    echo "├─────────────────────────────────────────────────────────┤"
+    echo -e "│  通过: ${GREEN}${PASS}${NC}  失败: ${RED}${FAIL}${NC}"
+    echo "└─────────────────────────────────────────────────────────┘"
+    echo ""
+
+    if [[ $FAIL -eq 0 ]]; then
+        log_success "所有验证项通过！"
+    else
+        log_warn "有 $FAIL 项验证失败，请检查上方日志"
+    fi
+}
+
 # ============================================================
 # 主流程
 # ============================================================
@@ -819,17 +968,9 @@ main() {
     do_install_docker       # 16. Docker
     do_install_komari       # 17. Komari 探针
     do_install_tools        # 18. 基础工具
+    do_verify               # 19. 验证
 
-    # 显示完成信息
-    echo ""
-    log_step "初始化完成！"
-    echo ""
-    log_info "系统信息:"
-    echo "  主机名:     $(hostname)"
-    echo "  SSH端口:    $SSH_PORT"
-    echo "  时区:       $(timedatectl | grep 'Time zone' | awk '{print $3}' 2>/dev/null || echo $TIMEZONE)"
-    echo "  SWAP:       $(free -h | awk '/^Swap:/{print $2}')"
-    echo "  Docker:     $(docker --version 2>/dev/null || echo '未安装')"
+    # 显示连接信息
     echo ""
     log_warn "请使用新端口重新连接: ssh -p $SSH_PORT root@<IP>"
     echo ""
